@@ -1,0 +1,65 @@
+#!/usr/bin/env fift -s
+"TonUtil.fif" include
+"RequestsUtil.fif" include
+"Colors.fif" include
+
+{
+	^Cyan ."new-order.fif" ^reset .": " cr cr
+	."	fift -s new-order.fif <src-addr-filename> <dest-addr> <seqno> <amount> <order-filename> [timeout] [body-boc]" cr cr
+	."Generates a BOC request to multi-signature smartcontract wallet to" cr ."create an order for transaction." cr cr
+	^White ."	<src-addr-filename>" ^reset ." - transaction source (filename)" cr
+	^White ."	<dest-addr>" ^reset ." - transaction destination (bounceable address)" cr
+	^White ."	<seqno>" ^reset ." - seqno of source wallet" cr
+	^White ."	<amount>" ^reset ." - Gram amount of transaction" cr
+	^White ."	<order-filename>" ^reset ." - filename of resulted BOC request" cr
+	^White ."	[timeout]" ^reset ." - timeout of signing an order in seconds (def: 86400 sec)" ^Black ." (optional)" ^reset cr
+	^White ."	[body-boc]" ^reset ." - filename of body of internal message (def: <b 0 32 u, " 34 emit ."dkaraush" 34 emit ." $, b>)" ^Black ." (optional)" ^reset cr cr
+	^White ."Example:" ^reset cr
+	."	fift -s new-order.fif wallet.addr 0QC4naEK9H6HakwFoE1sPIboLaLjbxk_qkEBfM6Ujh4tJmo4 1 2.3 order.boc" cr cr
+	0 halt
+} : usage
+$# 5 >= ' usage ifnot
+
+$1 =: src-addr-filename
+src-addr-filename load-address 2=: src_addr
+$2 -1 parse-load-address =: bounce 2=: dest_addr
+$3 (number) 1 = {
+	abort"seqno should be an integer"
+} ifnot =: seqno
+$4 $>GR =: amount
+$5 =: order-filename
+def? $6 { @' $6 (number) 1 = {
+	abort"timeout should be an integer"
+} ifnot } { 86400 } cond =: timeout
+now timeout + =: expiration
+def? $7 {
+	@' $7 dup file-exists? {
+		."file " ^White 34 emit type 34 emit ^reset ." is not found" cr
+		0 halt
+	} ifnot
+	file>B B>boc
+} { <b 0 32 u, "dkaraush" $, b> } cond =: body
+3 constant send-mode
+
+<b now 32 u, b> hashu 65536 mod =: id // random
+
+<b  b{011000100} s, 
+	dest_addr addr, 
+	amount Gram, 0 106 u, 
+  	body <s 2dup s-fits? not rot over 1 i, -rot { drop body ref, } { s, } cond
+b> =: internal_message
+<b  seqno 32 u,
+	1 8 u,
+	id 16 u,
+	expiration 32 u,
+	send-mode 8 u,
+	internal_message ref,
+b> =: external_message
+
+<b b{1000100} s, src_addr addr, 0 Gram, b{00} s,
+   dictnew dict, 
+   external_message <s s, 
+b> boc>B order-filename B>file 
+
+order-filename load-request
+info-request

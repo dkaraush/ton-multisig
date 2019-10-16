@@ -1,0 +1,27 @@
+// simple addon for ansi colors
+// author: @dkaraush (dkaraush@gmail.com)
+
+{ 27 emit } : esc
+
+{ esc ."[0m" } : ^reset
+
+{ esc ."[30m" } : ^black
+{ esc ."[31m" } : ^red
+{ esc ."[32m" } : ^green
+{ esc ."[33m" } : ^yellow
+{ esc ."[34m" } : ^blue
+{ esc ."[35m" } : ^magenta
+{ esc ."[36m" } : ^cyan
+{ esc ."[37m" } : ^white
+
+// bold
+{ esc ."[30;1m" } : ^Black
+{ esc ."[31;1m" } : ^Red
+{ esc ."[32;1m" } : ^Green
+{ esc ."[33;1m" } : ^Yellow
+{ esc ."[34;1m" } : ^Blue
+{ esc ."[35;1m" } : ^Magenta
+{ esc ."[36;1m" } : ^Cyan
+{ esc ."[37;1m" } : ^White
+
+{ ^red type ^reset 0 halt } : fatalerr

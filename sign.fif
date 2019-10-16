@@ -1,0 +1,32 @@
+#!/usr/bin/env fift -s
+"TonUtil.fif" include
+"Colors.fif" include
+"RequestsUtil.fif" include
+
+{
+	^White ."Usage:" ^reset cr
+	."	" $0 type ." <order-filename> <wallet-pk-filename>"
+	0 halt
+} : usage
+$# 2 >= ' usage ifnot
+
+$1 load-request
+$2 file>B dup Blen 33 <> {
+	"Wallet private key must contain exactly 33 bytes." fatalerr
+} if
+8 B>u@+ =: keyid
+=: pk
+<b message_hash @ pk ed25519_sign B, b> <s =: signature
+
+keyid signs @ 8 idict@ {
+	^cyan ."Order has been already signed with this key." ^reset cr
+} {
+	signature keyid signs @ 8 idict! {
+		^red ."Failed to put new signature to the order." ^reset cr
+		0 halt
+	} ifnot
+	signs !
+} cond
+
+$1 save-request
+info-request

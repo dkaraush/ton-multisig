@@ -1,0 +1,103 @@
+#!/usr/bin/env fift -s
+"TonUtil.fif" include
+"Asm.fif" include
+"Colors.fif" include
+
+{
+	^Cyan ."new-wallet.fif" ^reset .": " cr cr
+	."	fift -s new-wallet.fif <workchain-id> <n> <k> [<filename-base>]" cr cr
+	."Creates multi-signature wallet for the TON Blockchain." cr
+	^White ."	<workchain-id>" ^reset ." - workchain ID of the wallet" cr
+	^White ."	<n>" ^reset ." - number of keys (0 < n <= 100)" cr
+	^White ."	<k>" ^reset ." - minimal number of signatures to confirm transaction (0 < k <= n <= 100)" cr
+	^White ."	[<filename-base>]" ^reset ." - filename base for files (def: new-wallet)" ^Black ." (optional)" ^reset cr cr
+	."After successful execution these files will be created:" cr
+	^White ."	<filebase>.addr" ^reset ." - address of the wallet" cr
+	^White ."	<filebase>-<i>.pk" ^reset ." - <n> private keys" cr
+	^White ."	<filebase>-query.boc" ^reset ." - resulted message to the blockchain, which should be sent" cr
+	^White ."Example:" ^reset cr
+	."	fift -s new-wallet.fif 0 5 3 my-wallet" cr cr
+	0 halt
+} : usage
+$# 3 >= ' usage ifnot
+
+$1 parse-workchain-id =: wc
+$2 (number) 1 = { ."n should be an integer" 1 halt } ifnot
+	dup dup
+	> 0 swap <= 100 and { ."0 < n <= 100" 1 halt } ifnot
+	=: N
+$3 (number) 1 = { ."k should be an integer" 1 halt } ifnot
+	dup dup
+	> 0 swap <= N and { ."0 < k <= n (" N . .")" 1 halt } ifnot
+	=: K
+def? $4 { @' $4 } { "new-wallet" } cond constant file-base
+
+{
+	dup (.) "-" swap $+ file-base swap $+ +".pk"
+	dup file-exists?
+	{ 
+		^cyan ."Loading private key from " ^reset ^Cyan dup type ^reset cr
+		swap drop file>B 1 B| swap 8 B>u@ swap
+	} {
+		^blue ."Generating new private key to " ^reset ^Blue dup type ^reset cr
+		swap newkeypair drop 2dup swap
+		<b swap 8 u, swap B, b> <s 33 B@ 3 roll
+		B>file
+	} cond
+} : preload-keypair
+
+// generating private keys
+variable i
+0 i !
+{
+	i @ preload-keypair pair
+	i @ 1 + i !
+} N times
+N tuple =: keys
+
+"wallet-code.fif" include constant code
+dictnew
+0 i !
+{
+	<b keys i @ [] 1 [] priv>pub B, b> <s i @ rot 8 idict! drop
+	i @ 1 + i !
+} N times
+<b
+	0 32 u,
+	N 8 u,
+	K 8 u,
+	swap dict,
+	dictnew dict,
+b> constant storage
+<b  0 32 u,
+	0 8 u,
+b> constant raw_message
+raw_message hashB constant hash_message
+hash_message keys 0 [] 1 [] ed25519_sign constant signature
+dictnew =: signatures
+<b signature B, b> <s 0 signatures 8 idict! {
+	"Failed to put signature to the request." fatalerr
+} ifnot =: signatures
+<b  signatures dict,
+	raw_message <s s, b> <s
+constant message
+
+null constant libraries
+<b b{0011} s, code ref, storage ref, libraries dict, b> constant StateInit
+
+StateInit hashu wc swap 2constant wallet_addr
+cr
+^White ."The wallet address: " ^reset wallet_addr .addr cr
+^White ."Non-bounceable (for init): " ^reset wallet_addr 7 .Addr cr
+^White ."Bounceable (for later access): " ^reset wallet_addr 6 .Addr cr
+wallet_addr file-base +".addr" dup
+^cyan ."Address is saved to " ^reset ^Cyan type ^reset cr
+save-address
+
+<b b{1000100} s, wallet_addr addr, b{000010} s, StateInit <s s, b{0} s, message s, b> constant external_message
+cr ^White ."Resulted external message: " ^reset ^Black external_message <s csr. ^reset cr
+external_message 2 boc+>B
+
+file-base +"-query.boc" dup
+cr ^green ."Wallet creating query is saved to " ^reset ^Green type ^reset cr cr
+tuck B>file

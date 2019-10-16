@@ -1,0 +1,41 @@
+#!/usr/bin/env fift -s
+"TonUtil.fif" include
+"RequestsUtil.fif" include
+"Colors.fif" include
+
+{
+	^Cyan ."new-adder.fif" ^reset .": " cr cr
+	."	fift -s new-adder.fif <src-addr-filename> <seqno> <order-id> <adder-filename>" cr cr
+	."Generates a BOC request to multi-signature smartcontract wallet to" cr ."add missing signatures to already sent order." cr cr
+	^White ."	<src-addr-filename>" ^reset ." - multi-signature wallet address (filename)" cr
+	^White ."	<seqno>" ^reset ." - seqno of source wallet" cr
+	^White ."	<order-id>" ^reset ." - ID of already sent order" cr
+	^White ."	<adder-filename>" ^reset ." - filename of resulted BOC request" cr
+	^White ."Example:" ^reset cr
+	."	fift -s new-adder.fif wallet.addr 98211 order.boc" cr cr
+	0 halt
+} : usage
+$# 4 >= ' usage ifnot
+
+$1 =: src-addr-filename
+src-addr-filename load-address 2=: src_addr
+$2 (number) 1 = {
+	"seqno should be an integer" fatalerr
+} ifnot =: seqno
+$3 (number) 1 = {
+	"order-id should be an integer" fatalerr
+} ifnot =: order-id
+$4 =: adder-filename
+
+<b  seqno 32 u,
+	2 8 u,
+	order-id 16 u,
+b> =: external_message
+
+<b b{1000100} s, src_addr addr, 0 Gram, b{00} s,
+   dictnew dict, 
+   external_message <s s, 
+b> boc>B adder-filename B>file 
+
+adder-filename load-request
+info-request

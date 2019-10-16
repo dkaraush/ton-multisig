@@ -1,0 +1,180 @@
+(tuple) tupleempty() asm "NIL";
+(tuple) tuplenew(int n) asm "TUPLEVAR";
+(tuple, ()) ~tpush_int(tuple t, int val) asm "TPUSH";
+(tuple, ()) ~tpush_ref(tuple t, cell val) asm "TPUSH";
+(tuple, ()) ~tpush_cell(tuple t, cell val) asm "TPUSH";
+(tuple, ()) ~tpush_slice(tuple t, slice val) asm "TPUSH";
+(tuple, ()) ~tpush_tuple(tuple t, tuple val) asm "TPUSH";
+(int) tlen(tuple t) asm "TLEN";
+(int) pow2(int x) asm "POW2";
+
+() recv_internal(slice in_msg) impure { }
+() recv_external(slice in_msg) impure {
+  cell signatures = in_msg~load_dict();
+  slice cs = in_msg;
+  int hash = slice_hash(cs);
+
+  int message_seqno = cs~load_uint(32);
+  slice ds = get_data().begin_parse();
+  int stored_seqno = ds~load_uint(32);
+  throw_if(51, stored_seqno != message_seqno);
+
+  int N = ds~load_uint(8);
+  int K = ds~load_uint(8);
+  cell keys = ds~load_dict();
+  cell orders = ds~load_dict();
+
+  int _expr = 0;
+  int f = 0;
+  int message_mode = cs~load_uint(8);
+  int orderid = 0;
+  int orderq = 0;
+  int ordertotal = 0;
+  int _sendmode = 0;
+  cell c = begin_cell().end_cell();
+  if (message_mode > 0) {
+    orderid = cs~load_uint(16);
+    (var v, f) = orders.udict_get?(16, orderid);
+    if (message_mode == 1) {
+      if (f) {
+        throw(55);
+      }
+    }
+    if (message_mode == 2) {
+      if ( ~ f) {
+        throw(56);
+      }
+      _expr = v~load_uint(32);
+      ordertotal = v~load_uint(8);
+      orderq = v~load_uint(128);
+      _sendmode = v~load_uint(8);
+      c = v~load_ref();
+    }
+  }
+
+  int accepted = false;
+  int index = -1;
+  do {
+    (index, slice value, f) = signatures.udict_get_next?(8, index);
+    if (f) {
+      (slice public_key, var p) = keys.udict_get?(8, index);
+      if (p) {
+        if (check_signature(hash, value~load_bits(512), public_key~load_uint(256))) {
+          ifnot (accepted) {
+            accepted = -1;
+            accept_message();
+          }
+          if (message_mode == 0) {
+            f = 0;
+          }
+
+          int p = pow2(index);
+          if (orderq & p == 0) {
+            orderq = orderq + p;
+            ordertotal = ordertotal + 1;
+          }
+        }
+        value.end_parse();
+        public_key.end_parse();
+      }
+    }
+  } until ( ~ f);
+  throw_unless(54, accepted);
+  if (message_mode == 1) {
+    int exp = cs~load_uint(32);
+    int rmode = cs~load_uint(8);
+    cell internal = cs~load_ref();
+    orders~udict_set_builder(16, orderid,
+      begin_cell()
+      .store_uint(exp, 32)
+      .store_uint(ordertotal, 8)
+      .store_uint(orderq, 128)
+      .store_uint(rmode, 8)
+      .store_ref(internal));
+  }
+  if (message_mode == 2) {
+    orders~udict_set_builder(16, orderid,
+      begin_cell()
+      .store_uint(_expr, 32)
+      .store_uint(ordertotal, 8)
+      .store_uint(orderq, 128)
+      .store_uint(_sendmode, 8)
+      .store_ref(c));
+  }
+
+  index = -1;
+  do {
+    (index, slice v, f) = orders.udict_get_next?(16, index);
+    if (f) {
+      int exp = v~load_uint(32);
+      if (exp < now()) {
+        orders~udict_delete_get?(16, index);
+      } else {
+        int n = v~load_uint(8);
+        if (n >= K) {
+          v~load_uint(128);
+          int rmode = v~load_uint(8);
+
+          send_raw_message(v~load_ref(), rmode);
+          orders~udict_delete_get?(16, index);
+        }
+      }
+    }
+  } until ( ~ f);
+
+  set_data(begin_cell()
+    .store_uint(stored_seqno + 1, 32)
+    .store_uint(N, 8)
+    .store_uint(K, 8)
+    .store_dict(keys)
+    .store_dict(orders)
+  .end_cell());
+}
+
+int seqno() method_id {
+  return get_data().begin_parse().preload_uint(32);
+}
+
+int n() method_id {
+  var ds = get_data().begin_parse();
+  ds~load_uint(32);
+  return ds~load_uint(8);
+}
+
+int k() method_id {
+  var ds = get_data().begin_parse();
+  ds~load_uint(40);
+  return ds~load_uint(8);
+}
+
+tuple orders() method_id {
+  var ds = get_data().begin_parse();
+  ds~load_uint(32);
+  ds~load_uint(8);
+  ds~load_uint(8);
+  ds~load_dict(); ;; i know, but skip_dict has not worked
+  var orders = ds~load_dict();
+  var t = tupleempty();
+  int f = 0;
+  int index = -1;
+  do {
+    (index, slice v, f) = orders.udict_get_next?(16, index);
+    if (f) {
+      var T = tupleempty();
+      T~tpush_int(index);
+      T~tpush_int(v~load_uint(32));
+      T~tpush_int(v~load_uint(8));
+      T~tpush_int(v~load_uint(128));
+      T~tpush_int(v~load_uint(8));
+      var internal = v~load_ref().begin_parse();
+      internal~load_uint(9);
+      var addr = tupleempty();
+      addr~tpush_int(internal~load_int(8));
+      addr~tpush_int(internal~load_uint(256));
+      T~tpush_tuple(addr);
+      T~tpush_int(internal~load_grams());
+      t~tpush_tuple(T);
+    }
+  } until ( ~ f);
+  return t;
+}

@@ -1,0 +1,132 @@
+#!/usr/bin/env fift -s
+// library for managing BOC requests
+// author: @dkaraush (dkaraush@gmail.com)
+
+"TonUtil.fif" include
+"Colors.fif" include
+
+{
+	2dup  6 .Addr cr ^Black ."(" swap (.) type .":" (.) type .")" ^reset
+} : show-addr
+
+variable I
+variable request_boc
+variable src_wc
+variable src_addr
+variable amount0
+variable signs
+variable _seqno
+variable id
+variable expiration
+variable send-mode
+variable internal_message
+variable external_message
+variable message_hash
+variable dest_wc
+variable dest_addr
+variable amount
+variable body
+variable request_mode
+variable isOrder
+variable isAdder
+{
+	dup file-exists? {
+		"Request file is not found" fatalerr
+	} ifnot
+	file>B B>boc <s request_boc !
+
+	^White ."Raw request: " ^reset cr
+	^Black request_boc @ csr. ^reset cr
+
+	request_boc @
+	7 u@+ swap 68 = {
+		"request file is broken" fatalerr
+	} ifnot
+	8 i@+ swap src_wc !
+	256 u@+ swap src_addr !
+	Gram@+ swap amount0 !
+	2 u@+ swap 0 = {
+	 	"request file is broken 2" fatalerr
+	} ifnot
+
+	dict@+ swap signs !
+	external_message !
+
+	external_message @ shash message_hash !
+	external_message @
+	32 u@+ swap _seqno !
+	8 u@+ swap request_mode !
+	request_mode @ 1 = {
+		-1 isOrder !
+		0 isAdder !
+	} {
+		0 isOrder !
+		-1 isAdder !
+	} cond
+	16 u@+ swap id !
+	request_mode @ 1 = {
+		32 u@+ swap expiration !
+		8 u@+ swap send-mode !
+		ref@+ <s internal_message !
+		drop
+
+		internal_message @
+		9 u@+ swap drop
+		8 i@+ swap dest_wc !
+		256 u@+ swap dest_addr !
+		Gram@+ swap amount !
+		106 u@+ swap 0 = {
+			"request file is broken" fatalerr
+		} ifnot
+		body !
+	} if
+} : load-request
+
+{
+	<b  b{1000100} s, 
+		src_wc @ 8 i, 
+		src_addr @ 256 u,
+		amount0 @ Gram, 
+		b{00} s,
+		signs @ dict, 
+		external_message @ s, 
+	b> boc>B swap B>file 
+} : save-request
+
+{
+	request_mode @ 1 = {
+		expiration @ now < {
+			^Red ."Order #" id @ . ."(expired)" cr
+			^White ."Expiration Time: " ^reset expiration @ . ."(now: " now (.) type .")" cr
+		} {
+			^Green ."Order #" id @ . ^reset cr
+			^White ."Expiration Time: " ^reset expiration @ . ."(" expiration @ now - (.) type ." seconds left)" cr
+		} cond
+		^White ."From: " ^reset src_wc @ src_addr @ show-addr cr
+		^White ."To: " ^reset dest_wc @ dest_addr @ show-addr cr
+		^White ."Amount: " ^reset ^Cyan amount @ .GR cr
+		cr
+		^White ."Message seqno: " ^reset _seqno @ . ^Black ."(0x" _seqno @ (x.) type .")" ^reset cr
+		^White ."Send mode: " ^reset send-mode @ . cr
+		^White ."Body: " ^reset
+		^Black body @ csr. ^reset
+		cr
+	} {
+		^Green ."Order #" id @ . ^reset ^Black ."(adder)" ^reset cr
+		^White ."Message seqno: " ^reset _seqno @ . ^Black ."(0x" _seqno @ (x.) type .")" ^reset cr
+	} cond
+
+	^White ."Signatures: " ^reset
+	0 I !
+	signs @ 8 {
+		cr
+		^Cyan ."[#" swap (.) type ."] " ^reset
+		32 B@ Bx. ."..."
+		I @ 1 + I !
+		-1
+	} dictforeach drop
+	I @ 0 = {
+		^Black ."(empty)" ^reset cr
+	} if
+	cr cr
+} : info-request

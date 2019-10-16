@@ -1,0 +1,18 @@
+#!/usr/bin/env fift -s
+"TonUtil.fif" include
+"Colors.fif" include
+"RequestsUtil.fif" include
+
+{
+	^Cyan ."info.fif" ^reset .": " cr cr
+	."	fift -s order/order-info.fif <order-filename>" cr cr
+	."Shows an information about BOC request." cr cr
+	^White ."	<order-filename>" ^reset ." - filename of generated BOC request" cr cr
+	^White ."Example:" ^reset cr
+	."	fift -s order/order-info.fif order.boc" cr cr
+	0 halt
+} : usage
+$# 1 >= ' usage ifnot
+
+$1 load-request
+info-request
